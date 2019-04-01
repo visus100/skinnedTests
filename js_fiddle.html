@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - raycast - skinning</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				margin: 0px;
+				background-color: #000000;
+				overflow: hidden;
+			}
+		</style>
+	</head>
+	<body>
+
+		<script src="js/three.min.js"></script>
+		<script src="js/OrbitControls.js"></script>
+
+		<script>
+			var scene, camera, renderer, mesh, ghostMesh;
+			
+			var raycaster = new THREE.Raycaster();
+			var raycasterMeshHelper;
+			
+			initScene();
+			render();
+			
+			function initScene () {
+				scene = new THREE.Scene();
+				camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 200 );
+				camera.position.set( 20, 7, 3 );
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				
+				document.body.appendChild( renderer.domElement );
+				window.addEventListener( 'resize', onWindowResize, false );
+				
+				var orbit = new THREE.OrbitControls( camera, renderer.domElement );
+				
+				//lights stuff
+				var ambientLight = new THREE.AmbientLight( 0xffffff, 0.3 );
+				scene.add( ambientLight );
+				var lights = [];
+				lights[ 0 ] = new THREE.PointLight( 0xffffff, 1, 0 );
+				lights[ 1 ] = new THREE.PointLight( 0xffffff, 1, 0 );
+				lights[ 2 ] = new THREE.PointLight( 0xffffff, 1, 0 );
+				lights[ 0 ].position.set( 0, 200, 0 );
+				lights[ 1 ].position.set( 100, 200, 100 );
+				lights[ 2 ].position.set( - 100, - 200, - 100 );
+				scene.add( lights[ 0 ] );
+				scene.add( lights[ 1 ] );
+				scene.add( lights[ 2 ] );
+				
+				
+				//raycaster mesh 
+				var raycasterMaterial = new THREE.MeshBasicMaterial( {  color: 0xdddddd, opacity: 0.7, transparent: true  } );
+				var geometrySphere = new THREE.SphereGeometry( 0.5, 16, 16 );
+				raycasterMeshHelper = new THREE.Mesh( geometrySphere, raycasterMaterial );
+				raycasterMeshHelper.visible = false;
+				scene.add( raycasterMeshHelper );
+				
+				renderer.domElement.addEventListener( 'mousemove', onMouseMove, false );
+				
+				
+				//model Loading
+				
+				var loader = new THREE.JSONLoader();
+				loader.load(  "js_fiddle/skinned_mesh.json", function( geometry ) {
+					var meshMaterial = new THREE.MeshStandardMaterial({
+						color: 0x00df15,
+						skinning: true
+					});
+				
+					mesh = new THREE.SkinnedMesh(geometry, meshMaterial);
+					scene.add(mesh);
+					
+					var skeleton = new THREE.SkeletonHelper( mesh );
+					scene.add(skeleton);
+					
+					//some experimental skeletonal changes
+					mesh.skeleton.bones[1].rotation.z += 0.10;
+					mesh.skeleton.bones[2].rotation.x += -0.65;
+					mesh.skeleton.bones[3].rotation.y += -0.45;
+					mesh.skeleton.bones[3].position.x += 0.11;
+					
+					//updates matrix
+					mesh.updateMatrix();
+					mesh.geometry.applyMatrix( mesh.matrix );
+					mesh.updateMatrixWorld(true);
+					
+					//crate ghost mesh geometry
+					createGhostMesh();
+					
+					//crate point cloud helper from buffergeometry
+					var bufferGeometry = new THREE.BufferGeometry().fromGeometry( mesh.geometry );
+					
+					var particesMaterial = new THREE.PointsMaterial( {color: 0xff00ea, size: 0.07, sizeAttenuation: false} );
+					particles = new THREE.Points( bufferGeometry, particesMaterial );
+					particles.sortParticles = true;
+					scene.add( particles );
+					
+				} );
+			}
+			
+			function createGhostMesh() {
+				var geometryForGhostMesh = new THREE.Geometry();
+				
+				//push vertices and other stuff to geometry
+				for (i = 0; i < mesh.geometry.vertices.length; i++) {
+					var temp = new THREE.Vector3(mesh.geometry.vertices[i].x, mesh.geometry.vertices[i].y, mesh.geometry.vertices[i].z);
+					geometryForGhostMesh.vertices.push(temp);
+					
+					//////
+					//here should be the code for calc translation verices of skinned mesh and added to geometryForGhostMesh
+					//////
+					
+					geometryForGhostMesh.skinIndices.push(mesh.geometry.skinIndices[i]);
+					geometryForGhostMesh.skinWeights.push(mesh.geometry.skinWeights[i]);
+				}
+
+				for (i = 0; i < mesh.geometry.faces.length; i++) {
+					geometryForGhostMesh.faces.push(mesh.geometry.faces[i]);
+				}
+				
+				//create material and add to scene
+
+				var ghostMaterial = new THREE.MeshBasicMaterial({
+						color: 0xff0000,
+						opacity: 0.1,
+						transparent: true,
+						skinning: true
+					});
+				ghostMesh = new THREE.Mesh(geometryForGhostMesh, ghostMaterial);
+				scene.add(ghostMesh);
+			}
+			
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+			function render () {
+				requestAnimationFrame( render );
+				renderer.render( scene, camera );
+			};
+			function onMouseMove(event) {
+				//raycaster for ghostMesh 
+				if (ghostMesh){
+					var rect = renderer.domElement.getBoundingClientRect();
+					var mouseX = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
+					var mouseY = - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1;
+					raycaster.setFromCamera( new THREE.Vector2( mouseX, mouseY ), camera );
+
+					var intersects = raycaster.intersectObject(ghostMesh);
+					if (intersects.length > 0) {
+						raycasterMeshHelper.visible = true;
+						raycasterMeshHelper.position.set(0, 0, 0);
+						raycasterMeshHelper.lookAt(intersects[0].face.normal);
+						raycasterMeshHelper.position.copy(intersects[0].point);
+					} else {
+						raycasterMeshHelper.visible = false;
+					}
+				}
+			}
+			
+			
+		</script>
+	</body>
+</html>
